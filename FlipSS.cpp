@@ -4,17 +4,17 @@
 const char szAppName[] = "Flip Screen Saver";
 #define AMOUNT_TO_MOVE_CURSOR 1
 
-static void MyReportError( HANDLE hEvtLog, LPCTSTR pMsg, bool Enabled )
+static void MyReportError( HANDLE hEvtLog, LPCTSTR pMsg )
 {
-	if ( Enabled )
+	if ( hEvtLog != NULL )
 	{
 		ReportEvent( hEvtLog, EVENTLOG_ERROR_TYPE, 0, 0, nullptr, 1, 0, &pMsg, nullptr );
 	}
 }
 
-static void MyReportInfo( HANDLE hEvtLog, LPCTSTR pMsg, bool Enabled )
+static void MyReportInfo( HANDLE hEvtLog, LPCTSTR pMsg )
 {
-	if ( Enabled )
+	if ( hEvtLog != NULL )
 	{
 		ReportEvent( hEvtLog, EVENTLOG_INFORMATION_TYPE, 0, 0, nullptr, 1, 0, &pMsg, nullptr );
 	}
@@ -23,7 +23,6 @@ static void MyReportInfo( HANDLE hEvtLog, LPCTSTR pMsg, bool Enabled )
 int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, _In_ int /*nShowCmd*/ )
 {
 	int RetCode{ 0 };
-	auto evtLog = RegisterEventSource( NULL, "FlipSS" );
 
 	/* Parse the command line, looking for a switch */
 	LPCSTR pCmd = lpCmdLine;
@@ -71,14 +70,17 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 				sMsg.Format( "Unrecognised command line parameter - %s", pCmd );
 				MessageBox( NULL, sMsg, szAppName, MB_OK );
 			}
-//			break;
 		}
 	}
 
+	// If not debugging, the log handle will be NULL which is taken to mean "don't log"
+	auto evtLog = bDebug ?
+					RegisterEventSource( NULL, "FlipSS" ) :
+					NULL;
 	{
 		CString sMsg;
 		sMsg.Format( "FlipSS %d", SwitchOn );
-		MyReportInfo( evtLog, sMsg, bDebug );
+		MyReportInfo( evtLog, sMsg );
 	}
 
 	switch ( SwitchOn )
@@ -128,7 +130,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 				RetCode = GetLastError();
 				CString sMsg;
 				sMsg.Format( "Failed SystemParametersInfo. Error 0x%x", RetCode );
-				MyReportError( evtLog, sMsg, bDebug );
+				MyReportError( evtLog, sMsg );
 			}
 		}
 		break;
@@ -142,7 +144,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 				RetCode = GetLastError();
 				CString sMsg;
 				sMsg.Format( "Failed OpenInputDesktop. Error 0x%x", RetCode );
-				MyReportError( evtLog, sMsg, bDebug );
+				MyReportError( evtLog, sMsg );
 			}
 
 			if ( hdsk != NULL )
@@ -154,7 +156,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 					RetCode = GetLastError();
 					CString sMsg;
 					sMsg.Format( "Failed SetThreadDesktop. Error 0x%x", RetCode );
-					MyReportError( evtLog, sMsg, bDebug );
+					MyReportError( evtLog, sMsg );
 				}
 			}
 
@@ -176,7 +178,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 							RetCode = GetLastError();
 							CString sMsg;
 							sMsg.Format( "Failed SCP. Error 0x%x", RetCode );
-							MyReportError( evtLog, sMsg, bDebug );
+							MyReportError( evtLog, sMsg );
 							break;
 						}
 					}
@@ -189,7 +191,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 					RetCode = GetLastError();
 					CString sMsg;
 					sMsg.Format( "Failed GCP. Error 0x%x", RetCode );
-					MyReportError( evtLog, sMsg, bDebug );
+					MyReportError( evtLog, sMsg );
 				}
 
 				/* Try this old method if its still running */
@@ -199,8 +201,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 					if ( hSaver != NULL )
 					{
 						PostMessage( hSaver, WM_CLOSE, 0, 0 );
-						//				MessageBeep( MB_OK );
-						MyReportInfo( evtLog, "Close screen saver window", bDebug );
+						MyReportInfo( evtLog, "Close screen saver window" );
 					}
 				}
 			}
@@ -252,13 +253,13 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 				hWnd = GetForegroundWindow();
 				CString sMsg;
 				sMsg.Format( "Foreground hWnd 0x%p", hWnd );
-				MyReportInfo( evtLog, sMsg, bDebug );
+				MyReportInfo( evtLog, sMsg );
 
 				if ( !PostMessage( hWnd, WM_SYSCOMMAND, SC_SCREENSAVE, 0 ) )
 				{
 					RetCode = GetLastError();
 					sMsg.Format( "Failed PostMessage. Error 0x%x", RetCode );
-					MyReportError( evtLog, sMsg, bDebug );
+					MyReportError( evtLog, sMsg );
 				}
 			}
 		}
