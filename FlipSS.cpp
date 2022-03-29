@@ -4,20 +4,32 @@
 const char szAppName[] = "Flip Screen Saver";
 #define AMOUNT_TO_MOVE_CURSOR 1
 
-static void MyReportError( HANDLE hEvtLog, LPCTSTR pMsg )
+// Experiment with C++20 concepts to restrict an integer value to only the valid ones the API accepts
+template<WORD val>
+concept EvtLogType =	(val == EVENTLOG_SUCCESS) ||
+						(val == EVENTLOG_ERROR_TYPE) ||
+						(val == EVENTLOG_WARNING_TYPE) ||
+						(val == EVENTLOG_INFORMATION_TYPE) ||
+						(val == EVENTLOG_AUDIT_SUCCESS) ||
+						(val == EVENTLOG_AUDIT_FAILURE);
+
+template <WORD etVal> requires EvtLogType<etVal>
+static void MyReportEvent( HANDLE hEvtLog, LPCTSTR pMsg )
 {
 	if ( hEvtLog != NULL )
 	{
-		ReportEvent( hEvtLog, EVENTLOG_ERROR_TYPE, 0, 0, nullptr, 1, 0, &pMsg, nullptr );
+		ReportEvent( hEvtLog, etVal, 0, 0, nullptr, 1, 0, &pMsg, nullptr );
 	}
+}
+
+static void MyReportError( HANDLE hEvtLog, LPCTSTR pMsg )
+{
+	MyReportEvent<EVENTLOG_ERROR_TYPE>( hEvtLog, pMsg );
 }
 
 static void MyReportInfo( HANDLE hEvtLog, LPCTSTR pMsg )
 {
-	if ( hEvtLog != NULL )
-	{
-		ReportEvent( hEvtLog, EVENTLOG_INFORMATION_TYPE, 0, 0, nullptr, 1, 0, &pMsg, nullptr );
-	}
+	MyReportEvent<EVENTLOG_INFORMATION_TYPE>( hEvtLog, pMsg );
 }
 
 int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, _In_ int /*nShowCmd*/ )
