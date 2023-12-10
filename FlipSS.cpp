@@ -32,10 +32,37 @@ static void MyReportInfo( HANDLE hEvtLog, LPCTSTR pMsg )
 	MyReportEvent<EVENTLOG_INFORMATION_TYPE>( hEvtLog, pMsg );
 }
 
+static void ReportUsageAndState()
+{
+	BOOL bActive;
+
+	// Get the active/inactive setting (which doesn't appear to have any
+	// visibility in the Windows 10 UI, but currently still works to
+	// enable/disable the idle timer aspect of the screen saver)
+	SystemParametersInfo( SPI_GETSCREENSAVEACTIVE, 0, &bActive, 0 );
+
+	// This: https://mskb.pkisolutions.com/kb/318781 this is how to determine whether a screen saver is set
+	char szScreenSaver[260];
+	{
+		DWORD dwLen = _countof( szScreenSaver ) - 1;
+		// If this exists, this is the screen saver
+		if ( RegGetValue( HKEY_CURRENT_USER, "Control Panel\\Desktop", "SCRNSAVE.EXE", RRF_RT_REG_SZ, NULL, szScreenSaver, &dwLen ) != ERROR_SUCCESS )
+		{
+			lstrcpy( szScreenSaver, "None" );
+		}
+	}
+
+	CString sMsg;
+	sMsg.Format( "Usage: FlipSS [/on, /off, /start, or /stop] [/debug (logging to the Windows event log)]\n\n"
+		"The screen saver '%s' is currently %s",
+		szScreenSaver,
+		bActive ? "active" : "inactive" );
+
+	MessageBox( NULL, sMsg, szAppName, MB_OK );
+}
+
 int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, _In_ int /*nShowCmd*/ )
 {
-	int RetCode{ 0 };
-
 	/* Parse the command line, looking for a switch */
 	LPCSTR pCmd = lpCmdLine;
 	enum class OptionSwitch { Report, On, Off, Start, Stop } SwitchOn = OptionSwitch::Report;	// Default = report current state
@@ -95,37 +122,13 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 		MyReportInfo( evtLog, sMsg );
 	}
 
+	int RetCode{ 0 };
+
 	switch ( SwitchOn )
 	{
 	case OptionSwitch::Report:
 		/* If we don't have a command line switch, report usage & current state of the saver */
-		{
-			BOOL bActive;
-
-			// Get the active/inactive setting (which doesn't appear to have any
-			// visibility in the Windows 10 UI, but currently still works to
-			// enable/disable the idle timer aspect of the screen saver)
-			SystemParametersInfo( SPI_GETSCREENSAVEACTIVE, 0, &bActive, 0 );
-
-			// This: https://mskb.pkisolutions.com/kb/318781 this is how to determine whether a screen saver is set
-			char szMsg[260];
-			{
-				DWORD dwLen = _countof( szMsg ) - 1;
-				// If this exists, this is the screen saver
-				if ( RegGetValue( HKEY_CURRENT_USER, "Control Panel\\Desktop", "SCRNSAVE.EXE", RRF_RT_REG_SZ, NULL, szMsg, &dwLen ) != ERROR_SUCCESS )
-				{
-					lstrcpy( szMsg, "None" );
-				}
-			}
-
-			CString sMsg;
-			sMsg.Format( "Usage: FlipSS [/on, /off, /start, or /stop] [/debug (logging to the Windows event log)]\n\n"
-						"The screen saver '%s' is currently %s",
-							szMsg,
-							bActive ? "active" : "inactive" );
-
-			MessageBox( NULL, sMsg, szAppName, MB_OK );
-		}
+		ReportUsageAndState();
 		break;
 
 	case OptionSwitch::On:
@@ -149,20 +152,12 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 
 	case OptionSwitch::Stop:
 		{
-			auto hdsk = OpenInputDesktop( 0, FALSE, READ_CONTROL | DESKTOP_SWITCHDESKTOP );
-
-			if ( hdsk == NULL )
-			{
-				RetCode = GetLastError();
-				CString sMsg;
-				sMsg.Format( "Failed OpenInputDesktop. Error 0x%x", RetCode );
-				MyReportError( evtLog, sMsg );
-			}
+			// Try to switch to the current desktop (the screen saver one)
+			// before attempting to do things, otherwise they fail.
+			const auto hdsk = OpenInputDesktop( 0, FALSE, READ_CONTROL | DESKTOP_SWITCHDESKTOP );
 
 			if ( hdsk != NULL )
 			{
-				// Switch to the current desktop (the screen saver one)
-				// before attempting to do things, otherwise they fail.
 				if ( !SetThreadDesktop( hdsk ) )
 				{
 					RetCode = GetLastError();
@@ -170,6 +165,13 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 					sMsg.Format( "Failed SetThreadDesktop. Error 0x%x", RetCode );
 					MyReportError( evtLog, sMsg );
 				}
+			}
+			else
+			{
+				RetCode = GetLastError();
+				CString sMsg;
+				sMsg.Format( "Failed OpenInputDesktop. Error 0x%x", RetCode );
+				MyReportError( evtLog, sMsg );
 			}
 
 			{
@@ -228,9 +230,9 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 	case OptionSwitch::Start:
 		/* Start the screen saver */
 		{
-			char szMsg[260];
-			DWORD dwLen = _countof( szMsg )-1;
-			if ( RegGetValue( HKEY_CURRENT_USER, "Control Panel\\Desktop", "SCRNSAVE.EXE", RRF_RT_REG_SZ, NULL, szMsg, &dwLen ) == ERROR_SUCCESS )
+			char szScreenSaver[260];
+			DWORD dwLen = _countof( szScreenSaver )-1;
+			if ( RegGetValue( HKEY_CURRENT_USER, "Control Panel\\Desktop", "SCRNSAVE.EXE", RRF_RT_REG_SZ, NULL, szScreenSaver, &dwLen ) == ERROR_SUCCESS )
 			{
 				// Initialise COM for any possible case where ShellExecute may require it
 				// (though it's not normally needed to invoke a screen saver).
@@ -238,7 +240,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 				// there's nothing critical if it does!
 				static_cast<void>( CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE ) );
 
-				int ErrVal = reinterpret_cast<int>( ShellExecute( NULL, NULL, szMsg, NULL, NULL, SW_NORMAL ) );
+				const int ErrVal = reinterpret_cast<int>( ShellExecute( NULL, NULL, szScreenSaver, NULL, NULL, SW_NORMAL ) );
 				if ( ErrVal < 32 )
 				{
 					// If it's this error, it's likely because the path is system32 and a 32-bit
@@ -246,7 +248,7 @@ int CALLBACK WinMain( _In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR lpCmdLine, 
 					if ( ErrVal == ERROR_FILE_NOT_FOUND )
 					{
 						// Replace system32 with sysnative to allow 32-bit application to side-step file system redirection
-						CString str{szMsg};
+						CString str{szScreenSaver};
 						str.MakeUpper();
 						str.Replace( "SYSTEM32", "sysnative" );
 						/*int ErrVal = */reinterpret_cast<int>(ShellExecute( NULL, NULL, str, NULL, NULL, SW_NORMAL ));
